@@ -1,8 +1,8 @@
 import pandas as pd
+import numpy
 import argparse
 import sys
 from datetime import datetime
-import csv
 
 
 class UberStats:
@@ -11,36 +11,49 @@ class UberStats:
         self.data = self._load_data()
 
     def _load_data(self):
-        try:
-            data = pd.read_csv(self.file_path)
-            data['Begin Trip Time'] = pd.to_datetime(data['Begin Trip Time'])
-            data['Drop off Time'] = pd.to_datetime(data['Drop off Time'])
-            data['duration_seconds'] = (data['Drop off Time'] - data['Begin Trip Time']).dt.total_seconds()
-            return data
-        except Exception as e:
-            print(f"Error loading file: {e}")
-            return None
+
+        data = pd.read_csv(self.file_path)
+
+        def transform_begin_time(df_line):
+            return datetime.strptime(df_line['Begin Trip Time'], "%Y-%m-%d %H:%M:%S %z %Z")
+
+        data['Begin Trip Time'] = data.apply(transform_begin_time, axis=1)
+
+        def transform_end_time(df_line):
+            return datetime.strptime(df_line['Dropoff Time'], "%Y-%m-%d %H:%M:%S %z %Z")
+
+        def transform_duration(df_line):
+            # TODO: remove line with invalid duration
+            if df_line['Begin Trip Time'] > df_line['Dropoff Time']:
+                return 0
+
+            return (df_line['Dropoff Time'] - df_line['Begin Trip Time']).seconds
+
+        data['Dropoff Time'] = data.apply(transform_end_time, axis=1)
+        data['duration_seconds'] = data.apply(transform_duration, axis=1)
+
+        return data
 
     def total_money_spent(self):
-        return self.data['cost'].sum()
+        return self.data['Fare Amount'].sum()
 
     def total_rides(self):
         total = len(self.data)
-        completed = len(self.data[self.data['status'] == 'COMPLETED'])
-        canceled = len(self.data[self.data['status'] == 'CANCELED'])
+        completed = len(self.data[self.data['Trip or Order Status'] == 'COMPLETED'])
+        canceled = len(self.data[self.data['Trip or Order Status'] == 'CANCELED'])
         return total, completed, canceled
 
     def total_rides_per_year(self):
         return self.data.groupby(self.data['Begin Trip Time'].dt.year).size()
 
     def total_rides_per_city(self):
-        return self.data['city'].value_counts()
+        return self.data['City'].value_counts()
 
     def total_rides_per_month(self):
         return self.data.groupby(self.data['Begin Trip Time'].dt.to_period('M')).size()
 
     def total_distance(self):
-        return self.data['distance'].sum()
+        return self.data['Distance (miles)'].sum()
 
     def rides_per_product(self):
         return self.data['Product Type'].value_counts()
@@ -53,7 +66,9 @@ class UberStats:
         return total_seconds, total_minutes, total_hours, total_days
 
     def shortest_ride(self):
-        return self.data['duration_seconds'].min()
+        # Filter trips with 0 seconds
+        non_zeros = self.data[self.data['duration_seconds'] != 0]
+        return non_zeros['duration_seconds'].min()
 
     def longest_ride(self):
         return self.data['duration_seconds'].max()
@@ -75,9 +90,9 @@ class UberStats:
         print(f"Rides per Product:\n{self.rides_per_product()}")
         total_seconds, total_minutes, total_hours, total_days = self.total_time_spent()
         print(
-            f"Total Time Spent in Rides: {total_seconds} seconds, {total_minutes} minutes, {total_hours} hours, {total_days} days")
-        print(f"Shortest Ride (minutes): {self.shortest_ride() / 60}")
-        print(f"Longest Ride (minutes): {self.longest_ride() / 60}")
+            f"Total Time Spent in Rides: {total_seconds:.2f} seconds, {total_minutes:.2f} minutes, {total_hours:.2f} hours, {total_days:.2f} days")
+        print(f"Shortest Ride (minutes): {self.shortest_ride() / 60:.2f}")
+        print(f"Longest Ride (minutes): {self.longest_ride() / 60:.2f}")
 
 
 def main():
@@ -95,8 +110,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-with open('trips_datat.csv', 'r') as file:
-    reader = csv.reader(file)
-    for row in reader:
-        print(row)
